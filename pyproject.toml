@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "dq-llm"
+version = "0.1.0"
+description = ""
+authors = ["Bavid Lynx <shivakharbanda11@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+channels = {extras = ["daphne"], version = "^4.1.0"}
+django = "^5.0.4"
+channels-redis = "^4.2.0"
+python-dotenv = "^1.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

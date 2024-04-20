@@ -1,0 +1,24 @@
+name: datasource_info
+enabled: true
+required: false
+description: >-
+  Fetches information of a particular datasource using its datasource ID by making an API call to the specified endpoint.
+examples:
+  datasource_info, description = datasource_info(34, "b5d05b6ee3273de786015c40f2749651d4ee4264")
+parameters:
+  - name: datasource_id
+    type: int
+    required: true
+    description: The ID of the datasource to fetch information for.
+  - name: auth_token
+    type: str
+    required: true
+    description: The authentication token to include in the request headers.
+returns:
+  - name: datasource_info
+    type: dict
+    description: >-
+      The datasource information dictionary containing details about the datasource, such as its ID, user, type, name, description, and connection details.
+  - name: description
+    type: str
+    description: A string describing the result of the datasource information fetch operation.

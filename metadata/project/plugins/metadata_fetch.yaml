@@ -1,0 +1,20 @@
+name: metadata_fetch
+enabled: true
+required: false
+description: >-
+  Fetches metadata of a particular datasource using its datasource ID by making an API call to the specified endpoint.
+examples:
+  metadata, description = metadata_fetch(34)
+parameters:
+  - name: datasource_id
+    type: int
+    required: true
+    description: The ID of the datasource to fetch metadata for.
+returns:
+  - name: metadata
+    type: dict
+    description: >-
+      The metadata dictionary containing information about the datasource, its tables, columns, and relationships.
+  - name: description
+    type: str
+    description: A string describing the result of the metadata fetch operation.

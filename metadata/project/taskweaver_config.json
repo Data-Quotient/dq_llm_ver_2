@@ -1,0 +1,12 @@
+{
+    "llm.api_type":"openai",
+    "llm.api_base": "https://api.openai.com/v1",
+    "llm.api_key": "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",
+    "llm.model": "gpt-3.5-turbo-0125",
+    "llm.response_format": "json_object",
+    "code_generator.enable_auto_plugin_selection":true,
+    "llm.embedding_api_type": "openai",
+    "llm.embedding_model": "text-embedding-3-large",
+    "plugin.base_path": "${AppBaseDir}/plugins"
+    
+  }

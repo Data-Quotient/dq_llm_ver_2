@@ -1,0 +1,24 @@
+name: database_query
+enabled: true
+required: false
+description: >-
+  Executes a query on a specific datasource using its datasource ID by making an API call to the specified endpoint.
+examples:
+  query_results, description = database_query(datasource_id=123, query="SELECT * FROM users")
+parameters:
+  - name: datasource_id
+    type: int
+    required: true
+    description: The ID of the datasource to run the query on.
+  - name: query
+    type: str
+    required: true
+    description: The SQL query to execute on the datasource.
+returns:
+  - name: query_results
+    type: list
+    description: >-
+      The results of the executed query, represented as a list of dictionaries where each dictionary corresponds to a row in the result set.
+  - name: description
+    type: str
+    description: A string describing the result of the query execution operation.
