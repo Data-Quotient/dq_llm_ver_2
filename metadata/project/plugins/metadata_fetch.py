@@ -12,13 +12,18 @@ API_PORT = os.getenv("API_PORT", "8000")
 
 @register_plugin
 class MetadataFetchPlugin(Plugin):
-    def __call__(self, datasource_id: int):
+    def __call__(self):
         """
         Fetches metadata of a particular datasource using its datasource ID.
 
         :param datasource_id: The ID of the datasource to fetch metadata for.
         :return: A tuple containing the metadata dictionary and a description string.
         """
+
+        datasource_id = self.ctx.get_session_var("datasource_id")
+        if datasource_id is None:
+            raise ValueError("No datasource ID found in session.")
+        
         # Build the full URL using environment variables
         url = f"http://{API_HOST}:{API_PORT}/api/metadata/fetch/{datasource_id}/"
 

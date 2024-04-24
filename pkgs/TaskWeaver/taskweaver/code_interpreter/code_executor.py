@@ -9,6 +9,7 @@ from taskweaver.config.config_mgt import AppConfigSource
 from taskweaver.memory.plugin import PluginRegistry
 from taskweaver.module.tracing import Tracing, get_tracer, tracing_decorator
 from taskweaver.plugin.context import ArtifactType
+from taskweaver.session import SessionMetadata
 
 TRUNCATE_CHAR_LENGTH = 1500
 
@@ -42,29 +43,27 @@ class CodeExecutor:
     @inject
     def __init__(
         self,
-        session_id: str,
-        workspace: str,
-        execution_cwd: str,
+        session_metadata: SessionMetadata,
         config: AppConfigSource,
         exec_mgr: Manager,
         plugin_registry: PluginRegistry,
         tracing: Tracing,
     ) -> None:
-        self.session_id = session_id
-        self.workspace = workspace
-        self.execution_cwd = execution_cwd
+        self.session_id = session_metadata.session_id
+        self.workspace = session_metadata.workspace
+        self.execution_cwd = session_metadata.execution_cwd
         self.exec_mgr = exec_mgr
-        self.exec_client = exec_mgr.get_session_client(
-            session_id,
-            session_dir=workspace,
-            cwd=execution_cwd,
+        self.exec_client = self.exec_mgr.get_session_client(
+            self.session_id,
+            session_dir=self.workspace,
+            cwd=self.execution_cwd,
         )
-        self.exec_kernel_mode = self.exec_mgr.get_kernel_mode()
         self.client_started: bool = False
         self.plugin_registry = plugin_registry
         self.plugin_loaded: bool = False
         self.config = config
         self.tracing = tracing
+        self.session_variables = {}
 
     @tracing_decorator
     def execute_code(self, exec_id: str, code: str) -> ExecutionResult:
@@ -77,6 +76,9 @@ class CodeExecutor:
             with get_tracer().start_as_current_span("load_plugin"):
                 self.load_plugin()
                 self.plugin_loaded = True
+        
+        # update session variables
+        self.exec_client.update_session_var(self.session_variables)
 
         with get_tracer().start_as_current_span("run_code"):
             self.tracing.set_span_attribute("code", code)
@@ -106,6 +108,9 @@ class CodeExecutor:
         self.tracing.set_span_attribute("result", self.format_code_output(result, with_code=False))
 
         return result
+    
+    def update_session_var(self, session_var_dict: dict) -> None:
+        self.session_variables.update(session_var_dict)
 
     def _save_file(
         self,
@@ -227,6 +232,3 @@ class CodeExecutor:
             lines.append("")
 
         return "\n".join([" " * indent + ln for ln in lines])
-
-    def get_execution_mode(self) -> Literal["local", "container"] | None:
-        return self.exec_kernel_mode

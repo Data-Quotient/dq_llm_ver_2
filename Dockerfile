@@ -34,5 +34,8 @@ RUN pip install -e ./pkgs/TaskWeaver
 # Expose the port the app runs on
 EXPOSE 8080
 
+# Install debugpy - Debugger used by Visual Studio Code for Python applications
+RUN pip install debugpy
+
 # Command to run the application using Daphne
 CMD ["poetry", "run", "daphne", "-b", "0.0.0.0", "-p", "8080", "dq_llm.asgi:application"]

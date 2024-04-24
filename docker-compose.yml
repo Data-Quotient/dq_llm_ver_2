@@ -4,14 +4,20 @@ services:
   web:
     build: .
     command: poetry run python manage.py runserver 0.0.0.0:8080
+    # command: poetry run python -m debugpy --listen 0.0.0.0:5678 --wait-for-client manage.py runserver 0.0.0.0:8080 For debugging Only
     volumes:
       - .:/app
+      # - /var/run/docker.sock:/var/run/docker.sock  # Mount the Docker socket here
     ports:
       - "8080:8080"
+      - "5678:5678" 
     env_file:
       - .env
     depends_on:
       - redis
+    environment:
+      PYDEVD_DISABLE_FILE_VALIDATION: "1"
+
     stdin_open: true
     tty: true
 

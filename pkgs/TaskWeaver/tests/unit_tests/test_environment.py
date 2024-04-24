@@ -13,8 +13,9 @@ IN_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
 
 
 def connect_and_execute_code(
-    connection_file: str,
-    ports_file: Optional[str] = None,
+        connection_file: str,
+        ports_file: Optional[str] = None,
+        code: str = 'open("filename.txt", "w").write("File content goes here.")',
 ):
     # Create the blocking client
     client = BlockingKernelClient()
@@ -35,7 +36,7 @@ def connect_and_execute_code(
     client.start_channels()
 
     result_msg_id = client.execute(
-        code='open("filename.txt", "w").write("File content goes here.")',
+        code=code,
         silent=False,
         store_history=True,
         allow_stdin=False,
@@ -93,6 +94,7 @@ def test_environment_start_subprocess():
         env = Environment("local", env_mode=EnvMode.Local)
         env.start_session(
             session_id="session_id",
+            session_dir=os.path.join(sessions, "session_id"),
         )
 
         assert os.path.isdir(sessions)
@@ -119,14 +121,49 @@ def test_environment_start_subprocess():
 
 
 @pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="Test doesn't work in Github Actions.")
+def test_environment_update_session_var():
+    # get cwd of current file
+    cwd = os.path.dirname(os.path.abspath(__file__))
+    sessions = os.path.join(cwd, "sessions")
+    try:
+        env = Environment("local", env_mode=EnvMode.Local)
+        env.start_session(
+            session_id="session_id",
+            session_dir=os.path.join(sessions, "session_id"),
+        )
+
+        assert os.path.isdir(sessions)
+        session_dir = os.path.join(sessions, "session_id")
+        assert os.path.isdir(session_dir)
+        ces_dir = os.path.join(session_dir, "ces")
+        assert os.path.isdir(ces_dir)
+        file_glob = os.path.join(ces_dir, "conn-session_id-*.json")
+        assert len(glob.glob(file_glob)) == 1
+        connection_file = glob.glob(file_glob)[0]
+        log_file = os.path.join(ces_dir, "kernel_logging.log")
+        assert os.path.isfile(log_file)
+        env.update_session_var("session_id", {"test_session_variable": "test_value"})
+        execute_result = str(connect_and_execute_code(connection_file, code=r"%_taskweaver_check_session_var"))
+        assert "test_value" in execute_result
+        assert "test_session_variable" in execute_result
+
+        env.stop_session("session_id")
+
+    finally:
+        # delete sessions
+        shutil.rmtree(sessions)
+
+
+@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="Test doesn't work in Github Actions.")
 def test_environment_start_outside_container():
     # get cwd of current file
     cwd = os.path.dirname(os.path.abspath(__file__))
     sessions = os.path.join(cwd, "sessions")
     try:
-        env = Environment("local", env_mode=EnvMode.OutsideContainer)
+        env = Environment("local", env_mode=EnvMode.Container)
         env.start_session(
             session_id="session_id",
+            session_dir=os.path.join(sessions, "session_id"),
         )
 
         assert os.path.isdir(sessions)
@@ -139,8 +176,6 @@ def test_environment_start_outside_container():
         connection_file = glob.glob(conn_file_glob)[0]
         ports_file = os.path.join(ces_dir, "ports.json")
         assert os.path.isfile(ports_file)
-        log_file = os.path.join(ces_dir, "kernel_logging.log")
-        assert os.path.isfile(log_file)
 
         connect_and_execute_code(connection_file, ports_file)
 
@@ -148,46 +183,6 @@ def test_environment_start_outside_container():
         assert os.path.isfile(saved_file)
 
         env.stop_session("session_id")
-    finally:
-        # delete sessions
-        shutil.rmtree(sessions)
-
-
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="Test doesn't work in Github Actions.")
-def test_environment_start_inside_container():
-    env = Environment("local", env_mode=EnvMode.InsideContainer)
-
-    # get cwd of current file
-    cwd = os.path.dirname(os.path.abspath(__file__))
-    sessions = os.path.join(cwd, "sessions")
-    os.makedirs(sessions, exist_ok=True)
-
-    session_dir = os.path.join(sessions, "session_id")
-    os.makedirs(session_dir, exist_ok=True)
-
-    ces_dir = os.path.join(session_dir, "ces")
-    cwd_dir = os.path.join(session_dir, "cwd")
-
-    os.makedirs(ces_dir, exist_ok=True)
-    os.makedirs(cwd_dir, exist_ok=True)
-
-    try:
-        env.start_session(
-            session_id="session_id",
-            port_start_inside_container=12345,
-            kernel_id_inside_container="kernel_id",
-        )
-
-        connection_file = os.path.join(ces_dir, "conn-session_id-kernel_id.json")
-        assert os.path.isfile(connection_file)
-
-        connect_and_execute_code(connection_file)
-
-        saved_file = os.path.join(cwd_dir, "filename.txt")
-        assert os.path.isfile(saved_file)
-
-        env.stop_session("session_id")
-        assert not os.path.isfile(connection_file)
     finally:
         # delete sessions
         shutil.rmtree(sessions)
