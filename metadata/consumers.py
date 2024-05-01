@@ -3,8 +3,19 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from .managers.session_manager import UserSession
 from taskweaver.app.app import TaskWeaverApp
-from taskweaver.module.event_emitter import SessionEventHandlerBase
+from taskweaver.module.event_emitter import (
+    SessionEventHandlerBase,
+    PostEventType,
+    RoundEventType,
+)
+import threading
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync
+import json
+from enum import Enum
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +26,9 @@ user_sessions = {}
 
 app_dir = "metadata/project"
 app = TaskWeaverApp(app_dir=app_dir)  # Initialize your AI app
+
+
+executor = ThreadPoolExecutor()
 
 class ChatAIConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -30,8 +44,11 @@ class ChatAIConsumer(AsyncWebsocketConsumer):
 
         # Create a new AI session and store it in the user_sessions dictionary
         self.event_handler = CustomSessionEventHandler(self)
+        asyncio.create_task(self.process_message_queue())
 
-        ai_client = app.get_session()  # Create a session for the AI client
+        # Asynchronously create an AI session to avoid blocking the WebSocket connection
+        ai_client = await asyncio.get_event_loop().run_in_executor(executor, app.get_session)
+        
         user_sessions[self.session_id] = UserSession(
             session_id=self.session_id, 
             auth_token=None,  # Token will be set after authentication
@@ -98,14 +115,20 @@ class ChatAIConsumer(AsyncWebsocketConsumer):
                 logger.warning(f"Unauthorized access attempt or session not found for session_id={self.session_id}")
 
     async def handle_ai_response(self, message, ai_client):
-        # Using the ai_client to send the message to the AI and receive a response
-        ai_client.update_session_var(variables = {"datasource_id": self.datasource_id})
-        response_round = ai_client.send_message(message, self.event_handler)
-        # Convert the AI's response to a dictionary format and send it back
-        response_dict = response_round.to_dict()
-        logger.info(f"AI response for message: {message}, response: {response_dict}")
-        return response_dict
+        ai_response = await asyncio.get_event_loop().run_in_executor(
+            executor, ai_client.send_message, message, self.event_handler
+        )
+        logger.info(f"Message processed and response sent for session_id={self.session_id}")
+        # breakpoint()
+        # await self.send(text_data=json.dumps({"message": ai_response}))
 
+    async def process_message_queue(self):
+        while True:
+            event = await self.event_handler.message_queue.get()
+            # Serialize and send the event as JSON
+            await self.send(text_data=json.dumps(event))
+            self.event_handler.message_queue.task_done()
+        
 
     async def authenticate_token(self, token):
         logger.info(f"Authenticating token: {token}")
@@ -115,37 +138,70 @@ class ChatAIConsumer(AsyncWebsocketConsumer):
     
 
 
-
-
-
-
-
-
-
 class CustomSessionEventHandler(SessionEventHandlerBase):
     def __init__(self, websocket):
         self.websocket = websocket
+        self.message_queue = asyncio.Queue()
+        self.reset_current_state()
 
-    async def handle(self, event):
-        # Prepare a message based on event type and content
-        message_content = {
-            'type': 'event',
-            'event_type': event.t,
-            'message': event.msg,
-            'details': event.extra
+    def reset_current_state(self):
+        self.current_round_id = None
+        self.current_post_id = None
+        self.current_message = ""
+
+    def handle_session(self, type, msg, extra, **kwargs):
+        self.queue_message("session", type, msg, extra)
+
+    def handle_round(self, type, msg, extra, round_id, **kwargs):
+        self.current_round_id = round_id
+        self.queue_message("round", type, msg, extra)
+
+    def handle_post(self, type, msg, extra, post_id, round_id, **kwargs):
+        self.current_post_id = post_id
+        if type == PostEventType.post_start:
+            self.reset_current_state()
+        elif type == PostEventType.post_end:
+            self.current_message += msg
+            self.queue_message("post", type, self.current_message, extra)
+            self.reset_current_state()
+        elif type == PostEventType.post_message_update:
+            self.current_message += msg
+            if extra.get("is_end"):
+                self.queue_message("post", type, self.current_message, extra)
+        else:
+            self.queue_message("post", type, msg, extra)
+
+    def queue_message(self, event_category, event_type, message, details):
+        # Convert event_type and other non-serializable objects
+        event = {
+            "type": "chat_message",
+            "event_category": event_category,
+            "event_type": self.serialize_event_type(event_type),
+            "message": message,
+            "details": self.serialize_details(details)
         }
-        # Send message back to client
-        await self.websocket.send(text_data=json.dumps(message_content))
+        self.message_queue.put_nowait(event)
 
-    # You might want to override other specific handlers if needed
-    async def handle_session(self, type, msg, extra, **kwargs):
-        # Example: handling session-specific events
-        pass
+    def serialize_event_type(self, event_type):
+        # Assuming event_type is an enum or has a similar interface
+        if isinstance(event_type, Enum):
+            return {"name": event_type.name, "value": event_type.value}
+        return {attr: self.serialize_value(getattr(event_type, attr)) for attr in dir(event_type) if not attr.startswith('_')}
 
-    async def handle_round(self, type, msg, extra, round_id, **kwargs):
-        # Example: handling round-specific events
-        pass
+    def serialize_details(self, details):
+        # Similar to how Chainlit handles attachments and complex structures
+        if isinstance(details, dict):
+            return {k: self.serialize_value(v) for k, v in details.items()}
+        return details
 
-    async def handle_post(self, type, msg, extra, post_id, round_id, **kwargs):
-        # Example: handling post-specific events
-        pass
+    def serialize_value(self, value):
+        if isinstance(value, Enum):
+            return value.name  # or value.value based on your needs
+        if isinstance(value, dict):
+            return {k: self.serialize_value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self.serialize_value(v) for v in value]
+        if hasattr(value, '__dict__'):
+            return {k: self.serialize_value(v) for k, v in value.__dict__.items() if not callable(v) and not k.startswith('_')}
+        return value  # Fallback for basic types
+
