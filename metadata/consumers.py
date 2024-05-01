@@ -1,10 +1,17 @@
 # chat/consumers.py
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
-from .managers.session_manager import UserSession
-from taskweaver.app.app import TaskWeaverApp
-from taskweaver.module.event_emitter import SessionEventHandlerBase
+import asyncio
 import logging
+
+from typing import Dict
+from concurrent.futures import ThreadPoolExecutor
+from channels.generic.websocket import AsyncWebsocketConsumer
+
+from .managers.session_manager import UserSession
+
+from taskweaver.app.app import TaskWeaverApp
+from .event_handler import CustomSessionEventHandler
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +22,9 @@ user_sessions = {}
 
 app_dir = "metadata/project"
 app = TaskWeaverApp(app_dir=app_dir)  # Initialize your AI app
+
+
+executor = ThreadPoolExecutor()
 
 class ChatAIConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -30,8 +40,11 @@ class ChatAIConsumer(AsyncWebsocketConsumer):
 
         # Create a new AI session and store it in the user_sessions dictionary
         self.event_handler = CustomSessionEventHandler(self)
+        asyncio.create_task(self.process_message_queue())
 
-        ai_client = app.get_session()  # Create a session for the AI client
+        # Asynchronously create an AI session to avoid blocking the WebSocket connection
+        ai_client = await asyncio.get_event_loop().run_in_executor(executor, app.get_session)
+        
         user_sessions[self.session_id] = UserSession(
             session_id=self.session_id, 
             auth_token=None,  # Token will be set after authentication
@@ -89,23 +102,26 @@ class ChatAIConsumer(AsyncWebsocketConsumer):
             session = user_sessions.get(self.session_id)
             if session and session.ai_client:
                 # Use the session's AI client to handle the message and get a response
-                ai_response = await self.handle_ai_response(message, session.ai_client)
+                await self.handle_ai_response(message, session.ai_client)
                 logger.info(f"Message processed and response sent for session_id={self.session_id}")
-                await self.send(text_data=json.dumps({"message": ai_response}))
             else:
                 # Session not found or message received before authentication
                 await self.send(text_data=json.dumps({"error": "Unauthorized"}))
                 logger.warning(f"Unauthorized access attempt or session not found for session_id={self.session_id}")
 
     async def handle_ai_response(self, message, ai_client):
-        # Using the ai_client to send the message to the AI and receive a response
-        ai_client.update_session_var(variables = {"datasource_id": self.datasource_id})
-        response_round = ai_client.send_message(message, self.event_handler)
-        # Convert the AI's response to a dictionary format and send it back
-        response_dict = response_round.to_dict()
-        logger.info(f"AI response for message: {message}, response: {response_dict}")
-        return response_dict
+        await asyncio.get_event_loop().run_in_executor(
+            executor, ai_client.send_message, message, self.event_handler
+        )
+        logger.info(f"Message processed and response sent for session_id={self.session_id}")
 
+    async def process_message_queue(self):
+        while True:
+            event = await self.event_handler.message_queue.get()
+            # Serialize and send the event as JSON
+            await self.send(text_data=json.dumps(event))
+            self.event_handler.message_queue.task_done()
+        
 
     async def authenticate_token(self, token):
         logger.info(f"Authenticating token: {token}")
@@ -114,38 +130,3 @@ class ChatAIConsumer(AsyncWebsocketConsumer):
         return True
     
 
-
-
-
-
-
-
-
-
-class CustomSessionEventHandler(SessionEventHandlerBase):
-    def __init__(self, websocket):
-        self.websocket = websocket
-
-    async def handle(self, event):
-        # Prepare a message based on event type and content
-        message_content = {
-            'type': 'event',
-            'event_type': event.t,
-            'message': event.msg,
-            'details': event.extra
-        }
-        # Send message back to client
-        await self.websocket.send(text_data=json.dumps(message_content))
-
-    # You might want to override other specific handlers if needed
-    async def handle_session(self, type, msg, extra, **kwargs):
-        # Example: handling session-specific events
-        pass
-
-    async def handle_round(self, type, msg, extra, round_id, **kwargs):
-        # Example: handling round-specific events
-        pass
-
-    async def handle_post(self, type, msg, extra, post_id, round_id, **kwargs):
-        # Example: handling post-specific events
-        pass
