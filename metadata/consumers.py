@@ -42,7 +42,8 @@ def create_user_folder(session_id, file_path):
     # Check if the file already exists in the destination folder
     destination_file_path = os.path.join(folder_path, file_name)
     if os.path.exists(destination_file_path):
-        raise FileExistsError("File already exists in the destination folder.")
+        # If the file already exists, replace it
+        os.remove(destination_file_path)
 
     # Copy the file to the destination folder
     copyfile(file_path, destination_file_path)
@@ -94,13 +95,18 @@ def file_display(files: List[Tuple[str, str]], session_cwd_path: str, session_id
                 "display": "inline"  # This will be used to render the image directly in the chat
             }
         elif file_path.lower().endswith(".csv"):
-            # CSV files - assume we want to show a preview or provide a download
+            import pandas as pd
+            data = pd.read_csv(full_path)
+            row_count = len(data)
+            # Create a DataFrame style for markdown rendering
+            data_style = data.head(n=5).to_markdown()
+            # Convert HTML to markdown
+            content = f"There are {row_count} rows in the data. The top {min(row_count, 5)} rows are:\n{data_style}"
             element = {
-                "type": "file",
-                "path": new_file_path,
+                "type": "table",
+                "content": content,
                 "name": file_name,
-                "display": "link",  # Link to download or view
-                "preview": True    # Optional: Implement logic to show a preview of the CSV
+                "display": "inline"  # Display the table preview directly in the chat
             }
         elif file_path.lower().endswith((".mp3", ".wav")):
             # Audio files
