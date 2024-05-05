@@ -3,6 +3,8 @@ import re
 import asyncio
 import functools
 
+from .managers.session_manager import UserSession
+
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -44,9 +46,8 @@ span = functools.partial(elem, "span")
 blinking_cursor = span("tw-end-cursor")()
 
 class CustomSessionEventHandler(SessionEventHandlerBase):
-    def __init__(self, websocket):
-        self.websocket = websocket
-        self.message_queue = asyncio.Queue()
+    def __init__(self, user_session):
+        self.user_session : UserSession = user_session  # Reference to the UserSession
         self.reset_current_state()
 
     def reset_current_state(self):
@@ -226,14 +227,15 @@ class CustomSessionEventHandler(SessionEventHandlerBase):
     def queue_message(self, event_category, event_type, message, details):
         # Convert event_type and other non-serializable objects
         event = {
+            "author": "Internal Bots",
             "type": "chat_message",
             "event_category": event_category,
             "event_type": self.serialize_event_type(event_type),
             "message": message,
             "details": self.serialize_details(details)
         }
-        self.message_queue.put_nowait(event)
-
+        self.user_session.message_queue.put_nowait(event)
+        
     def serialize_event_type(self, event_type):
         # Assuming event_type is an enum or has a similar interface
         if isinstance(event_type, Enum):
